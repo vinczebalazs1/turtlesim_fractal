@@ -16,20 +16,23 @@ class TurtlesimController(Node):
             Twist, '/turtle1/cmd_vel', 10
         )
 
-        # Subscriber: pozíció lekérdezése
+        # Subscriber: pozícióadatok
         self.pose = None
-
         self.pose_sub = self.create_subscription(
-            Pose,
-            '/turtle1/pose',
-            self.pose_callback,
-            10
+            Pose, '/turtle1/pose',
+            self.pose_callback, 10
         )
 
-        # Célkoordináták
-        self.target_x = 8.0
-        self.target_y = 8.0
+        # A négyzet célpontjai
+        self.targets = [
+            (8.0, 5.54),
+            (8.0, 8.0),
+            (5.54, 8.0),
+            (5.54, 5.54)
+        ]
 
+        # Aktuális célpont indexe
+        self.target_index = 0
         self.finished = False
 
         # Szabályozás 0.1 másodpercenként
@@ -39,41 +42,54 @@ class TurtlesimController(Node):
         self.pose = msg
 
     def move(self):
-        # Megvárjuk az első pozícióadatot
         if self.pose is None:
             return
 
-        # Távolság a célponttól
-        dx = self.target_x - self.pose.x
-        dy = self.target_y - self.pose.y
+        # Aktuális célpont kiválasztása
+        target_x, target_y = self.targets[self.target_index]
+
+        # Távolság számítása
+        dx = target_x - self.pose.x
+        dy = target_y - self.pose.y
         distance = math.sqrt(dx**2 + dy**2)
 
         msg = Twist()
 
-        # Ha elértük a célpontot, megállunk
+        # Célpont elérése
         if distance < 0.08:
             self.twist_pub.publish(msg)
-            self.get_logger().info('Célpont elérve!')
-            self.finished = True
-            self.timer.cancel()
+
+            self.get_logger().info(
+                f'{self.target_index + 1}. célpont elérve!'
+            )
+
+            # Következő célpontra lépés
+            self.target_index += 1
+
+            # Ha minden célpontot elértünk
+            if self.target_index >= len(self.targets):
+                self.get_logger().info('Négyzet kész!')
+                self.finished = True
+                self.timer.cancel()
+
             return
 
-        # Célpont iránya
+        # Célpont irányának számítása
         target_angle = math.atan2(dy, dx)
 
-        # Irányhiba normalizálása [-pi, pi] közé
+        # Irányhiba normalizálása
         angle_error = target_angle - self.pose.theta
         angle_error = math.atan2(
             math.sin(angle_error),
             math.cos(angle_error)
         )
 
-        # Arányos szögsebesség-szabályozás
+        # Arányos forgásszabályozás
         msg.angular.z = max(
             -2.0, min(2.0, 4.0 * angle_error)
         )
 
-        # Arányos lineáris sebesség-szabályozás
+        # Arányos haladási szabályozás
         if abs(angle_error) < 0.25:
             msg.linear.x = min(2.0, 1.5 * distance)
 
